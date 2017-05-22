@@ -1,40 +1,97 @@
 # Selenium Chrome HTTP Private Proxy
 
-This plugin permit to use proxy with a basic authentication with Chrome and Selenium ([it's impossible](http://docs.seleniumhq.org/docs/04_webdriver_advanced.jsp#using-a-proxy)).
-This trick can be use for all basic auth in your test with Selenium and Chrome.
+This plugin allows us to use a proxy with basic authentication with ChromeDriver and Selenium ([it's impossible currently](http://docs.seleniumhq.org/docs/04_webdriver_advanced.jsp#using-a-proxy)).
 
-Thanks to [henices](https://github.com/henices/Chrome-proxy-helper) who codes Chrome Proxy Helper. This fork uses it code base.
-
-This plugin is maintained by [Robin (PHP developer in Marseille)](http://www.robin-d.fr/). Report your issues with Github.
+This is a Java implementation of the plugin that can be found here: https://github.com/RobinDev/Selenium-Chrome-HTTP-Private-Proxy
 
 ## How to use it
 
-I use webDriver with a PHP client. So, this example will be in PHP.
-**The logic is the same with another language (java, python... same protocol).**
-```php
-$pluginForProxyLogin = '/tmp/a'.uniqid().'.zip';
+Add this method, optionally change the directory where the plugin files will be saved, currently specefied to save in: ```user.home\.application\auth\```
 
-$zip = new ZipArchive();
-$res = $zip->open($pluginForProxyLogin, ZipArchive::CREATE | ZipArchive::OVERWRITE);
-$zip->addFile('/path/to/Chrome-proxy-helper/manifest.json', 'manifest.json');
-$background = file_get_contents('/path/to/Chrome-proxy-helper/background.js');
-$background = str_replace(['%proxy_host', '%proxy_port', '%username', '%password'], ['5.39.64.181', '54991', 'd1g1m00d', '13de02d0e0z9'], $background);
-$zip->addFromString('background.js', $background);
-$zip->close();
+```java
+    public File getExtension(String host, String port, String username, String password) throws Exception {
+        String pluginDir = System.getProperty("user.home") + System.getProperty("file.separator") + ".application" + System.getProperty("file.separator") + "auth" +  System.getProperty("file.separator");
+        String fileName = pluginDir + host+"-"+port+"-"+username+"-"+password+ ".zip";
+        File extensionFile = new File(fileName);
+        if (extensionFile.exists()) {
+            return extensionFile;
+        }
+        FileOutputStream fout = new FileOutputStream(extensionFile);
+        ZipOutputStream zout = new ZipOutputStream(fout);
+        ZipEntry manifestFile = new ZipEntry("manifest.json");
+        zout.putNextEntry(manifestFile);
+        String manifestContent = new String("{\n" +
+                "    \"version\": \"1.0.0\",\n" +
+                "    \"manifest_version\": 2,\n" +
+                "    \"name\": \"Chrome Proxy\",\n" +
+                "    \"permissions\": [\n" +
+                "        \"proxy\",\n" +
+                "        \"tabs\",\n" +
+                "        \"unlimitedStorage\",\n" +
+                "        \"storage\",\n" +
+                "        \"<all_urls>\",\n" +
+                "        \"webRequest\",\n" +
+                "        \"webRequestBlocking\"\n" +
+                "    ],\n" +
+                "    \"background\": {\n" +
+                "        \"scripts\": [\"background.js\"]\n" +
+                "    },\n" +
+                "    \"minimum_chrome_version\":\"22.0.0\"\n" +
+                "}\n");
+        byte[] manifestData = manifestContent.getBytes();
+        zout.write(manifestData, 0, manifestData.length);
+        zout.closeEntry();
+        ZipEntry scriptFile = new ZipEntry("background.js");
+        zout.putNextEntry(scriptFile);
+        String scriptContent = new String("\n" +
+                "\n" +
+                "var config = {\n" +
+                "        mode: \"fixed_servers\",\n" +
+                "        rules: {\n" +
+                "          singleProxy: {\n" +
+                "            scheme: \"http\",\n" +
+                "            host: \"%proxy_host\",\n" +
+                "            port: parseInt(%proxy_port)\n" +
+                "          },\n" +
+                "          bypassList: [\"foobar.com\"]\n" +
+                "        }\n" +
+                "      };\n" +
+                "\n" +
+                "chrome.proxy.settings.set({value: config, scope: \"regular\"}, function() {});\n" +
+                "\n" +
+                "function callbackFn(details) {\n" +
+                "    return {\n" +
+                "        authCredentials: {\n" +
+                "            username: \"%username\",\n" +
+                "            password: \"%password\"\n" +
+                "        }\n" +
+                "    };\n" +
+                "}\n" +
+                "\n" +
+                "chrome.webRequest.onAuthRequired.addListener(\n" +
+                "            callbackFn,\n" +
+                "            {urls: [\"<all_urls>\"]},\n" +
+                "            ['blocking']\n" +
+                ");");
+        scriptContent = scriptContent.replaceAll("%proxy_host", host);
+        scriptContent = scriptContent.replaceAll("%proxy_port", port);
+        scriptContent= scriptContent.replaceAll("%username", username);
+        scriptContent = scriptContent.replaceAll("%password", password);
+        byte[] scriptData = scriptContent.toString().getBytes();
+        zout.write(scriptData, 0, scriptData.length);
+        zout.closeEntry();
+        zout.close();
+        return extensionFile;
+    }
+```
 
-putenv("webdriver.chrome.driver=/path/to/chromedriver");
+Now add the extension to the ChromeDriver instance like this
 
-$options = new ChromeOptions();
-$options->addExtensions([$pluginForProxyLogin]);
-$caps = DesiredCapabilities::chrome();
-$caps->setCapability(ChromeOptions::CAPABILITY, $options);
-
-$driver = ChromeDriver::start($caps);
-$driver->get('https://old-linux.com/ip/');
-
-header('Content-Type: image/png');
-echo $driver->takeScreenshot();
-
-
-unlink($pluginForProxyLogin);
+```java
+        DesiredCapabilities capabilities = DesiredCapabilities.chrome();
+        ChromeOptions options = new ChromeOptions();
+        options.addExtensions(getExtension("host", "port", "username", "password"));
+        capabilities.setCapability(ChromeOptions.CAPABILITY, options);
+        ChromeDriver driver = new ChromeDriver(capabilities);
+        driver.get("http://www.whatsmyip.org/");
 ```
